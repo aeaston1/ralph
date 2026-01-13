@@ -3,7 +3,6 @@
 ## Scope reviewed
 - `bin/ralph`
 - `.agents/ralph/loop.sh`
-- `.agents/ralph/PROMPT_plan.md`
 - `.agents/ralph/PROMPT_build.md`
 - `.agents/ralph/log-activity.sh`
 - `.agents/ralph/references/*`
@@ -15,7 +14,8 @@
 ### CLI
 - `tests/cli-smoke.mjs`
   - Verifies `--help` output
-  - Verifies `ralph prd ... --out` creates a PRD file (dry-run)
+  - Verifies `ralph prd ... --out` creates a PRD JSON file (dry-run)
+  - Verifies `ralph overview --prd ...` creates an overview file
 
 ### Loop (dry-run)
 - `tests/agent-loops.mjs`
@@ -29,12 +29,10 @@
 
 ### Real integration (new)
 - `tests/real-agents.mjs`
-  - Creates a temp repo with a 2‑story PRD and minimal AGENTS instructions
-  - Runs `ralph plan 1 --agent=<codex|claude|droid>`
+  - Creates a temp repo with a 2‑story JSON PRD and minimal AGENTS instructions
   - Runs `ralph build 2 --agent=<codex|claude|droid>`
   - Verifies:
-    - Plan exists and contains both story sections
-    - PRD stories are all checked
+    - PRD stories are all marked `done`
     - At least one git commit was created
     - Progress log exists
   - Cleans up the temp repo and logs after each agent run (pass or fail)
@@ -50,7 +48,7 @@
 1. Keep default tests deterministic (`npm test`) and provide a separate real‑agent test (`npm run test:real`).
 2. Add a non‑interactive flag for skill install if you want it testable in CI.
 3. Add assertions for `.ralph/activity.log` and `.ralph/guardrails.md` creation in `tests/real-agents.mjs`.
-4. Add a smoke test for `ralph plan` + `ralph build` in dry‑run mode to validate PRD marker normalization and routing policy insertion.
+4. Consider adding coverage for PRD selection when multiple JSON files exist.
 
 ## How to run
 - **Deterministic:** `npm test`

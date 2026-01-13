@@ -4,9 +4,9 @@ Basic usage:
 
 ```bash
 ralph prd "A lightweight uptime monitor (Hono app), deployed on Cloudflare, with email alerts via AWS SES"
-ralph plan
 ralph build 1 # one Ralph run
 ralph build 1 --no-commit # one Ralph run
+ralph overview
 ```
 
 Agent override:
@@ -18,12 +18,12 @@ ralph build 1 --agent=claude # one Ralph run
 ralph build 1 --agent=droid # one Ralph run
 ```
 
-PRD/plan overrides:
+PRD overrides:
 
 ```bash
-ralph prd "..." --out docs/prd-api.md
-ralph plan --prd docs/prd-api.md --plan .ralph/api-plan.md
-ralph build 1 --prd docs/prd-api.md --plan .ralph/api-plan.md # one Ralph run
+ralph prd "..." --out .agents/tasks/prd-api.json
+ralph build 1 --prd .agents/tasks/prd-api.json # one Ralph run
+ralph overview --prd .agents/tasks/prd-api.json
 ```
 
 Progress override:

@@ -2,8 +2,7 @@
 # All paths are relative to repo root unless absolute.
 # Uncomment and edit as needed.
 
-# PRD_PATH=".agents/tasks/prd.md"
-# PLAN_PATH=".ralph/IMPLEMENTATION_PLAN.md"
+# PRD_PATH=".agents/tasks/prd.json"
 # PROGRESS_PATH=".ralph/progress.md"
 # GUARDRAILS_PATH=".ralph/guardrails.md"
 # ERRORS_LOG_PATH=".ralph/errors.log"
@@ -20,7 +19,7 @@
 # AGENT_CMD="claude -p --dangerously-skip-permissions \"\$(cat {prompt})\""
 # AGENT_CMD="droid exec --skip-permissions-unsafe -f {prompt}"
 # AGENTS_PATH="AGENTS.md"
-# PROMPT_PLAN=".agents/ralph/PROMPT_plan.md"
 # PROMPT_BUILD=".agents/ralph/PROMPT_build.md"
 # NO_COMMIT=false
 # MAX_ITERATIONS=25
+# STALE_SECONDS=0

@@ -8,8 +8,7 @@ Ralph is a minimal, file‑based agent loop for autonomous coding. Each iteratio
 
 Ralph treats **files and git** as memory, not the model context:
 
-- **PRD** defines what’s required
-- **Plan** breaks it into concrete tasks
+- **PRD (JSON)** defines stories, gates, and status
 - **Loop** executes one story per iteration
 - **State** persists in `.ralph/`
 
@@ -22,7 +21,6 @@ Install and run Ralph from anywhere:
 ```bash
 npm i -g @iannuttall/ralph
 ralph prd # launches an interactive prompt
-ralph plan
 ralph build 1 # one Ralph run
 ```
 
@@ -54,7 +52,7 @@ If you skipped skills during `ralph install`, you can run `ralph install --skill
 
 ## Quick start (project)
 
-1) Write your PRD (default path) or generate one:
+1) Create your PRD (JSON) or generate one:
 ```
 ralph prd
 ```
@@ -65,17 +63,12 @@ Example prompt text:
 A lightweight uptime monitor (Hono app), deployed on Cloudflare, with email alerts via AWS SES
 ```
 
-Default output:
+Default output (agent chooses a short filename in `.agents/tasks/`):
 ```
-.agents/tasks/prd.md
-```
-
-2) Generate a plan (PRD → plan):
-```
-ralph plan
+.agents/tasks/prd-<short>.json
 ```
 
-3) Run one build iteration:
+2) Run one build iteration:
 ```
 ralph build 1 # one Ralph run
 ```
@@ -87,21 +80,27 @@ ralph build 1 --no-commit # one Ralph run
 
 Override PRD output for `ralph prd`:
 ```
-ralph prd --out docs/prd-api.md
+ralph prd --out .agents/tasks/prd-api.json
 ```
+Optional human overview (generated from JSON):
+```
+ralph overview
+```
+This writes a tiny overview alongside the PRD: `prd-<slug>.overview.md`.
 
-### Why a PRD and a plan?
+PRD story status fields are updated automatically by the loop:
+- `open` → selectable
+- `in_progress` → locked by a running loop (with `startedAt`)
+- `done` → completed (with `completedAt`)
 
-- **PRD**: requirements and acceptance criteria.
-- **Plan**: concrete, ordered tasks derived from the PRD. The loop executes one story at a time.
+If a loop crashes and a story stays `in_progress`, you can set `STALE_SECONDS` in `.agents/ralph/config.sh` to allow Ralph to automatically reopen stalled stories.
 
-## Override PRD/Plan paths
+## Override PRD paths
 
-You can point Ralph at a different PRD or plan file via CLI flags:
+You can point Ralph at a different PRD JSON file via CLI flags:
 
 ```bash
-ralph plan --prd docs/prd-api.md --plan .ralph/api-plan.md
-ralph build 1 --prd docs/prd-api.md --plan .ralph/api-plan.md # one Ralph run
+ralph build 1 --prd .agents/tasks/prd-api.json # one Ralph run
 ```
 
 Optional progress override:
@@ -109,6 +108,8 @@ Optional progress override:
 ```bash
 ralph build 1 --progress .ralph/progress-api.md # one Ralph run
 ```
+
+If multiple PRD JSON files exist in `.agents/tasks/` and you omit `--prd`, Ralph will prompt you to choose.
 
 Optional config file (if you installed templates):
 
@@ -145,7 +146,6 @@ droid  -> curl -fsSL https://app.factory.ai/cli | sh
 
 ## State files (.ralph/)
 
-- `IMPLEMENTATION_PLAN.md` — task plan grouped by story
 - `progress.md` — append‑only progress log
 - `guardrails.md` — “Signs” (lessons learned)
 - `activity.log` — activity + timing log

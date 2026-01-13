@@ -34,7 +34,7 @@
   <rect class="box" x="90" y="226" width="380" height="230" rx="0" />
   <text class="text" x="110" y="256">.agents/ralph/</text>
   <text class="text small muted" x="110" y="278">local overrides (optional)</text>
-  <text class="text small" x="110" y="306">PROMPT_plan.md</text>
+  <text class="text small" x="110" y="306">loop.sh</text>
   <text class="text small" x="110" y="328">PROMPT_build.md</text>
   <text class="text small" x="110" y="350">references/</text>
   <text class="text small" x="110" y="372">log-activity.sh</text>
@@ -43,7 +43,7 @@
   <rect class="box" x="530" y="226" width="380" height="230" rx="0" />
   <text class="text" x="550" y="256">.ralph/</text>
   <text class="text small muted" x="550" y="278">state + logs</text>
-  <text class="text small" x="550" y="306">IMPLEMENTATION_PLAN.md</text>
+  <text class="text small" x="550" y="306">errors.log</text>
   <text class="text small" x="550" y="328">progress.md</text>
   <text class="text small" x="550" y="350">guardrails.md</text>
   <text class="text small" x="550" y="372">activity.log</text>

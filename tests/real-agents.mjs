@@ -19,9 +19,44 @@ function setupTempProject() {
   mkdirSync(path.join(base, ".agents", "tasks"), { recursive: true });
   mkdirSync(path.join(base, ".ralph"), { recursive: true });
 
-  const prd = `# PRD: Real Agent Smoke Test\n\n## 3. User Stories\n\n### [ ] US-001: Create baseline file\n**Description:** As a user, I want a baseline file so the repo has an artifact.\n\n**Acceptance Criteria:**\n- [ ] File \"docs/US-001.txt\" exists with the exact text \"US-001 complete\"\n- [ ] Example: open docs/US-001.txt -> \"US-001 complete\"\n- [ ] Negative case: missing file -> failure\n- [ ] Typecheck/lint passes\n\n### [ ] US-002: Add second artifact\n**Description:** As a user, I want a second artifact to verify multi-story iteration.\n\n**Acceptance Criteria:**\n- [ ] File \"docs/US-002.txt\" exists with the exact text \"US-002 complete\"\n- [ ] Example: open docs/US-002.txt -> \"US-002 complete\"\n- [ ] Negative case: missing file -> failure\n- [ ] Typecheck/lint passes\n\n`;
+  const prd = {
+    version: 1,
+    project: "Real Agent Smoke Test",
+    qualityGates: [],
+    stories: [
+      {
+        id: "US-001",
+        title: "Create baseline file",
+        status: "open",
+        dependsOn: [],
+        description:
+          "As a user, I want a baseline file so the repo has an artifact.",
+        acceptanceCriteria: [
+          "File \"docs/US-001.txt\" exists with the exact text \"US-001 complete\"",
+          "Example: open docs/US-001.txt -> \"US-001 complete\"",
+          "Negative case: missing file -> failure",
+        ],
+      },
+      {
+        id: "US-002",
+        title: "Add second artifact",
+        status: "open",
+        dependsOn: ["US-001"],
+        description:
+          "As a user, I want a second artifact to verify multi-story iteration.",
+        acceptanceCriteria: [
+          "File \"docs/US-002.txt\" exists with the exact text \"US-002 complete\"",
+          "Example: open docs/US-002.txt -> \"US-002 complete\"",
+          "Negative case: missing file -> failure",
+        ],
+      },
+    ],
+  };
 
-  writeFileSync(path.join(base, ".agents", "tasks", "prd.md"), prd);
+  writeFileSync(
+    path.join(base, ".agents", "tasks", "prd.json"),
+    `${JSON.stringify(prd, null, 2)}\n`,
+  );
 
   const agents = `# AGENTS\n\n## Validation\n- For this repo, verify changes with shell checks only.\n- Use commands like: test -f <file>, grep -q \"text\" <file>\n- Do NOT run package manager tests.\n`;
 
@@ -35,17 +70,15 @@ function setupTempProject() {
 }
 
 function assertAllStoriesComplete(prdPath) {
-  const text = readFileSync(prdPath, "utf-8");
-  const remaining = text.match(/### \[ \] US-\d+/g);
-  if (remaining && remaining.length > 0) {
-    throw new Error(`Some stories remain unchecked:\n${remaining.join("\n")}`);
-  }
-}
-
-function assertPlanHasStories(planPath) {
-  const text = readFileSync(planPath, "utf-8");
-  if (!text.includes("### US-001") || !text.includes("### US-002")) {
-    throw new Error("Plan missing one or more story sections.");
+  const prd = JSON.parse(readFileSync(prdPath, "utf-8"));
+  const stories = Array.isArray(prd.stories) ? prd.stories : [];
+  const remaining = stories.filter(
+    (story) => String(story.status || "open").toLowerCase() !== "done",
+  );
+  if (remaining.length > 0) {
+    throw new Error(
+      `Some stories remain incomplete: ${remaining.map((s) => s.id).join(", ")}`,
+    );
   }
 }
 
@@ -66,23 +99,12 @@ function runForAgent(agent) {
   const env = { ...process.env };
 
   try {
-    run(process.execPath, [cliPath, "plan", "1", `--agent=${agent}`], {
-      cwd: projectRoot,
-      env,
-    });
-
-    const planPath = path.join(projectRoot, ".ralph", "IMPLEMENTATION_PLAN.md");
-    if (!existsSync(planPath)) {
-      throw new Error("Plan not created.");
-    }
-    assertPlanHasStories(planPath);
-
     run(process.execPath, [cliPath, "build", "2", `--agent=${agent}`], {
       cwd: projectRoot,
       env,
     });
 
-    const prdPath = path.join(projectRoot, ".agents", "tasks", "prd.md");
+    const prdPath = path.join(projectRoot, ".agents", "tasks", "prd.json");
     assertAllStoriesComplete(prdPath);
     assertCommitted(projectRoot);
 

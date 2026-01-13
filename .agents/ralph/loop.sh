@@ -3,8 +3,6 @@
 # Usage:
 #   ./.agents/ralph/loop.sh                 # build mode, default iterations
 #   ./.agents/ralph/loop.sh build           # build mode
-#   ./.agents/ralph/loop.sh plan            # plan mode (default 1 iteration)
-#   ./.agents/ralph/loop.sh plan 3          # plan mode, 3 iterations
 #   ./.agents/ralph/loop.sh prd "request"   # generate PRD via agent
 #   ./.agents/ralph/loop.sh 10              # build mode, 10 iterations
 #   ./.agents/ralph/loop.sh build 1 --no-commit
@@ -15,11 +13,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${RALPH_ROOT:-${SCRIPT_DIR}/../..}" && pwd)"
 CONFIG_FILE="${SCRIPT_DIR}/config.sh"
 
-DEFAULT_PRD_PATH=".agents/tasks/prd.md"
-DEFAULT_PLAN_PATH=".ralph/IMPLEMENTATION_PLAN.md"
+DEFAULT_PRD_PATH=".agents/tasks/prd.json"
 DEFAULT_PROGRESS_PATH=".ralph/progress.md"
 DEFAULT_AGENTS_PATH="AGENTS.md"
-DEFAULT_PROMPT_PLAN=".agents/ralph/PROMPT_plan.md"
 DEFAULT_PROMPT_BUILD=".agents/ralph/PROMPT_build.md"
 DEFAULT_GUARDRAILS_PATH=".ralph/guardrails.md"
 DEFAULT_ERRORS_LOG_PATH=".ralph/errors.log"
@@ -41,6 +37,7 @@ fi
 
 DEFAULT_MAX_ITERATIONS=25
 DEFAULT_NO_COMMIT=false
+DEFAULT_STALE_SECONDS=0
 PRD_REQUEST_PATH=""
 PRD_INLINE=""
 
@@ -71,10 +68,8 @@ resolve_agent_cmd() {
 DEFAULT_AGENT_CMD="$(resolve_agent_cmd "$DEFAULT_AGENT_NAME")"
 
 PRD_PATH="${PRD_PATH:-$DEFAULT_PRD_PATH}"
-PLAN_PATH="${PLAN_PATH:-$DEFAULT_PLAN_PATH}"
 PROGRESS_PATH="${PROGRESS_PATH:-$DEFAULT_PROGRESS_PATH}"
 AGENTS_PATH="${AGENTS_PATH:-$DEFAULT_AGENTS_PATH}"
-PROMPT_PLAN="${PROMPT_PLAN:-$DEFAULT_PROMPT_PLAN}"
 PROMPT_BUILD="${PROMPT_BUILD:-$DEFAULT_PROMPT_BUILD}"
 GUARDRAILS_PATH="${GUARDRAILS_PATH:-$DEFAULT_GUARDRAILS_PATH}"
 ERRORS_LOG_PATH="${ERRORS_LOG_PATH:-$DEFAULT_ERRORS_LOG_PATH}"
@@ -87,6 +82,7 @@ ACTIVITY_CMD="${ACTIVITY_CMD:-$DEFAULT_ACTIVITY_CMD}"
 AGENT_CMD="${AGENT_CMD:-$DEFAULT_AGENT_CMD}"
 MAX_ITERATIONS="${MAX_ITERATIONS:-$DEFAULT_MAX_ITERATIONS}"
 NO_COMMIT="${NO_COMMIT:-$DEFAULT_NO_COMMIT}"
+STALE_SECONDS="${STALE_SECONDS:-$DEFAULT_STALE_SECONDS}"
 
 abs_path() {
   local p="$1"
@@ -98,10 +94,8 @@ abs_path() {
 }
 
 PRD_PATH="$(abs_path "$PRD_PATH")"
-PLAN_PATH="$(abs_path "$PLAN_PATH")"
 PROGRESS_PATH="$(abs_path "$PROGRESS_PATH")"
 AGENTS_PATH="$(abs_path "$AGENTS_PATH")"
-PROMPT_PLAN="$(abs_path "$PROMPT_PLAN")"
 PROMPT_BUILD="$(abs_path "$PROMPT_BUILD")"
 GUARDRAILS_PATH="$(abs_path "$GUARDRAILS_PATH")"
 ERRORS_LOG_PATH="$(abs_path "$ERRORS_LOG_PATH")"
@@ -167,7 +161,7 @@ run_agent_inline() {
 MODE="build"
 while [ $# -gt 0 ]; do
   case "$1" in
-    plan|build|prd)
+    build|prd)
       MODE="$1"
       shift
       ;;
@@ -193,14 +187,8 @@ while [ $# -gt 0 ]; do
       ;;
   esac
 done
-if [ "$MODE" = "plan" ] && [ "$MAX_ITERATIONS" = "$DEFAULT_MAX_ITERATIONS" ]; then
-  MAX_ITERATIONS=1
-fi
 
 PROMPT_FILE="$PROMPT_BUILD"
-if [ "$MODE" = "plan" ]; then
-  PROMPT_FILE="$PROMPT_PLAN"
-fi
 
 if [ "$MODE" = "prd" ]; then
   PRD_USE_INLINE=1
@@ -212,7 +200,11 @@ if [ "$MODE" = "prd" ]; then
     require_agent "$PRD_AGENT_CMD"
   fi
 
-  mkdir -p "$(dirname "$PRD_PATH")" "$TMP_DIR"
+  if [[ "$PRD_PATH" == *.json ]]; then
+    mkdir -p "$(dirname "$PRD_PATH")" "$TMP_DIR"
+  else
+    mkdir -p "$PRD_PATH" "$TMP_DIR"
+  fi
 
   if [ -z "$PRD_REQUEST_PATH" ] && [ -n "$PRD_INLINE" ]; then
     PRD_REQUEST_PATH="$TMP_DIR/prd-request-$(date +%Y%m%d-%H%M%S)-$$.txt"
@@ -225,12 +217,17 @@ if [ "$MODE" = "prd" ]; then
   fi
 
   if [ "${RALPH_DRY_RUN:-}" = "1" ]; then
-    if [ ! -f "$PRD_PATH" ]; then
-      {
-        echo "# PRD (dry run)"
-        echo ""
-        echo "_Generated without an agent run._"
-      } > "$PRD_PATH"
+    if [[ "$PRD_PATH" == *.json ]]; then
+      if [ ! -f "$PRD_PATH" ]; then
+        {
+          echo '{'
+          echo '  "version": 1,'
+          echo '  "project": "ralph",'
+          echo '  "qualityGates": [],'
+          echo '  "stories": []'
+          echo '}'
+        } > "$PRD_PATH"
+      fi
     fi
     exit 0
   fi
@@ -238,10 +235,17 @@ if [ "$MODE" = "prd" ]; then
   PRD_PROMPT_FILE="$TMP_DIR/prd-prompt-$(date +%Y%m%d-%H%M%S)-$$.md"
   {
     echo "You are an autonomous coding agent."
-    echo "Use the \$prd skill to create a Product Requirements Document."
-    echo "Save the PRD to: $PRD_PATH"
+    echo "Use the \$prd skill to create a Product Requirements Document in JSON."
+    if [[ "$PRD_PATH" == *.json ]]; then
+      echo "Save the PRD to: $PRD_PATH"
+    else
+      echo "Save the PRD as JSON in directory: $PRD_PATH"
+      echo "Filename rules: prd-<short-slug>.json using 1-3 meaningful words."
+      echo "Examples: prd-workout-tracker.json, prd-usage-billing.json"
+    fi
     echo "Do NOT implement anything."
-    echo "After creating the PRD, tell the user to close the session and run \`ralph plan\`."
+    echo "After creating the PRD, end with:"
+    echo "PRD JSON saved to <path>. Close this chat and run \`ralph build\`."
     echo ""
     echo "User request:"
     cat "$PRD_REQUEST_PATH"
@@ -266,13 +270,6 @@ fi
 
 if [ "$MODE" != "prd" ] && [ ! -f "$PRD_PATH" ]; then
   echo "PRD not found: $PRD_PATH"
-  exit 1
-fi
-
-if [ "$MODE" = "build" ] && [ ! -f "$PLAN_PATH" ]; then
-  echo "Plan not found: $PLAN_PATH"
-  echo "Create it first with:"
-  echo "  ./.agents/ralph/loop.sh plan"
   exit 1
 fi
 
@@ -346,28 +343,27 @@ render_prompt() {
   local iter="$6"
   local run_log="$7"
   local run_meta="$8"
-  python3 - "$src" "$dst" "$PRD_PATH" "$PLAN_PATH" "$AGENTS_PATH" "$PROGRESS_PATH" "$ROOT_DIR" "$GUARDRAILS_PATH" "$ERRORS_LOG_PATH" "$ACTIVITY_LOG_PATH" "$GUARDRAILS_REF" "$CONTEXT_REF" "$ACTIVITY_CMD" "$NO_COMMIT" "$story_meta" "$story_block" "$run_id" "$iter" "$run_log" "$run_meta" <<'PY'
+  python3 - "$src" "$dst" "$PRD_PATH" "$AGENTS_PATH" "$PROGRESS_PATH" "$ROOT_DIR" "$GUARDRAILS_PATH" "$ERRORS_LOG_PATH" "$ACTIVITY_LOG_PATH" "$GUARDRAILS_REF" "$CONTEXT_REF" "$ACTIVITY_CMD" "$NO_COMMIT" "$story_meta" "$story_block" "$run_id" "$iter" "$run_log" "$run_meta" <<'PY'
 import sys
 from pathlib import Path
 
 src = Path(sys.argv[1]).read_text()
-prd, plan, agents, progress, root = sys.argv[3:8]
-guardrails = sys.argv[8]
-errors_log = sys.argv[9]
-activity_log = sys.argv[10]
-guardrails_ref = sys.argv[11]
-context_ref = sys.argv[12]
-activity_cmd = sys.argv[13]
-no_commit = sys.argv[14]
-meta_path = sys.argv[15] if len(sys.argv) > 15 else ""
-block_path = sys.argv[16] if len(sys.argv) > 16 else ""
-run_id = sys.argv[17] if len(sys.argv) > 17 else ""
-iteration = sys.argv[18] if len(sys.argv) > 18 else ""
-run_log = sys.argv[19] if len(sys.argv) > 19 else ""
-run_meta = sys.argv[20] if len(sys.argv) > 20 else ""
+prd, agents, progress, root = sys.argv[3:7]
+guardrails = sys.argv[7]
+errors_log = sys.argv[8]
+activity_log = sys.argv[9]
+guardrails_ref = sys.argv[10]
+context_ref = sys.argv[11]
+activity_cmd = sys.argv[12]
+no_commit = sys.argv[13]
+meta_path = sys.argv[14] if len(sys.argv) > 14 else ""
+block_path = sys.argv[15] if len(sys.argv) > 15 else ""
+run_id = sys.argv[16] if len(sys.argv) > 16 else ""
+iteration = sys.argv[17] if len(sys.argv) > 17 else ""
+run_log = sys.argv[18] if len(sys.argv) > 18 else ""
+run_meta = sys.argv[19] if len(sys.argv) > 19 else ""
 repl = {
     "PRD_PATH": prd,
-    "PLAN_PATH": plan,
     "AGENTS_PATH": agents,
     "PROGRESS_PATH": progress,
     "REPO_ROOT": root,
@@ -384,12 +380,14 @@ repl = {
     "RUN_META_PATH": run_meta,
 }
 story = {"id": "", "title": "", "block": ""}
+quality_gates = []
 if meta_path:
     try:
         import json
         meta = json.loads(Path(meta_path).read_text())
         story["id"] = meta.get("id", "") or ""
         story["title"] = meta.get("title", "") or ""
+        quality_gates = meta.get("quality_gates", []) or []
     except Exception:
         pass
 if block_path and Path(block_path).exists():
@@ -397,6 +395,10 @@ if block_path and Path(block_path).exists():
 repl["STORY_ID"] = story["id"]
 repl["STORY_TITLE"] = story["title"]
 repl["STORY_BLOCK"] = story["block"]
+if quality_gates:
+    repl["QUALITY_GATES"] = "\n".join([f"- {g}" for g in quality_gates])
+else:
+    repl["QUALITY_GATES"] = "- (none)"
 for k, v in repl.items():
     src = src.replace("{{" + k + "}}", v)
 Path(sys.argv[2]).write_text(src)
@@ -406,57 +408,162 @@ PY
 select_story() {
   local meta_out="$1"
   local block_out="$2"
-  python3 - "$PRD_PATH" "$meta_out" "$block_out" <<'PY'
+  python3 - "$PRD_PATH" "$meta_out" "$block_out" "$STALE_SECONDS" <<'PY'
 import json
-import re
+import os
 import sys
 from pathlib import Path
+from datetime import datetime, timezone
+try:
+    import fcntl
+except Exception:
+    fcntl = None
 
 prd_path = Path(sys.argv[1])
 meta_out = Path(sys.argv[2])
 block_out = Path(sys.argv[3])
+stale_seconds = 0
+if len(sys.argv) > 4:
+    try:
+        stale_seconds = int(sys.argv[4])
+    except Exception:
+        stale_seconds = 0
 
-text = prd_path.read_text().splitlines()
-pattern = re.compile(r'^###\s+(\[(?P<status>[ xX])\]\s+)?(?P<id>US-\d+):\s*(?P<title>.+)$')
-
-stories = []
-current = None
-for line in text:
-    m = pattern.match(line)
-    if m:
-        if current:
-            stories.append(current)
-        current = {
-            "id": m.group("id"),
-            "title": m.group("title").strip(),
-            "status": (m.group("status") or " "),
-            "lines": [line],
-        }
-    elif current is not None:
-        current["lines"].append(line)
-if current:
-    stories.append(current)
-
-if not stories:
-    meta_out.write_text(json.dumps({"ok": False, "error": "No stories found in PRD"}, indent=2) + "\n")
+if not prd_path.exists():
+    meta_out.write_text(json.dumps({"ok": False, "error": "PRD not found"}, indent=2) + "\n")
     block_out.write_text("")
     sys.exit(0)
 
-def is_done(story):
-    return str(story.get("status", "")).strip().lower() == "x"
+def normalize_status(value):
+    if value is None:
+        return "open"
+    return str(value).strip().lower()
 
-remaining = [s for s in stories if not is_done(s)]
-meta = {"ok": True, "total": len(stories), "remaining": len(remaining)}
+def parse_ts(value):
+    if not value:
+        return None
+    text = str(value).strip()
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        return datetime.fromisoformat(text)
+    except Exception:
+        return None
 
-if remaining:
-    target = remaining[0]
-    meta.update({
-        "id": target["id"],
-        "title": target["title"],
-    })
-    block_out.write_text("\n".join(target["lines"]))
-else:
-    block_out.write_text("")
+def now_iso():
+    return datetime.now(timezone.utc).isoformat()
+
+with prd_path.open("r+", encoding="utf-8") as fh:
+    if fcntl is not None:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+    try:
+        try:
+            data = json.load(fh)
+        except Exception as exc:
+            meta_out.write_text(json.dumps({"ok": False, "error": f"Invalid PRD JSON: {exc}"}, indent=2) + "\n")
+            block_out.write_text("")
+            sys.exit(0)
+
+        stories = data.get("stories") if isinstance(data, dict) else None
+        if not isinstance(stories, list) or not stories:
+            meta_out.write_text(json.dumps({"ok": False, "error": "No stories found in PRD"}, indent=2) + "\n")
+            block_out.write_text("")
+            sys.exit(0)
+
+        story_index = {s.get("id"): s for s in stories if isinstance(s, dict)}
+
+        def is_done(story_id: str) -> bool:
+            target = story_index.get(story_id)
+            if not isinstance(target, dict):
+                return False
+            return normalize_status(target.get("status")) == "done"
+
+        if stale_seconds > 0:
+            now = datetime.now(timezone.utc)
+            for story in stories:
+                if not isinstance(story, dict):
+                    continue
+                if normalize_status(story.get("status")) != "in_progress":
+                    continue
+                started = parse_ts(story.get("startedAt"))
+                if started is None or (now - started).total_seconds() > stale_seconds:
+                    story["status"] = "open"
+                    story["startedAt"] = None
+                    story["completedAt"] = None
+                    story["updatedAt"] = now_iso()
+
+        candidate = None
+        for story in stories:
+            if not isinstance(story, dict):
+                continue
+            if normalize_status(story.get("status")) != "open":
+                continue
+            deps = story.get("dependsOn") or []
+            if not isinstance(deps, list):
+                deps = []
+            if all(is_done(dep) for dep in deps):
+                candidate = story
+                break
+
+        remaining = sum(
+            1 for story in stories
+            if isinstance(story, dict) and normalize_status(story.get("status")) != "done"
+        )
+
+        meta = {
+            "ok": True,
+            "total": len(stories),
+            "remaining": remaining,
+            "quality_gates": data.get("qualityGates", []) or [],
+        }
+
+        if candidate:
+            candidate["status"] = "in_progress"
+            if not candidate.get("startedAt"):
+                candidate["startedAt"] = now_iso()
+            candidate["completedAt"] = None
+            candidate["updatedAt"] = now_iso()
+            meta.update({
+                "id": candidate.get("id", ""),
+                "title": candidate.get("title", ""),
+            })
+
+            depends = candidate.get("dependsOn") or []
+            if not isinstance(depends, list):
+                depends = []
+            acceptance = candidate.get("acceptanceCriteria") or []
+            if not isinstance(acceptance, list):
+                acceptance = []
+
+            description = candidate.get("description") or ""
+            block_lines = []
+            block_lines.append(f"### {candidate.get('id', '')}: {candidate.get('title', '')}")
+            block_lines.append(f"Status: {candidate.get('status', 'open')}")
+            block_lines.append(
+                f"Depends on: {', '.join(depends) if depends else 'None'}"
+            )
+            block_lines.append("")
+            block_lines.append("Description:")
+            block_lines.append(description if description else "(none)")
+            block_lines.append("")
+            block_lines.append("Acceptance Criteria:")
+            if acceptance:
+                block_lines.extend([f"- [ ] {item}" for item in acceptance])
+            else:
+                block_lines.append("- (none)")
+            block_out.write_text("\n".join(block_lines).rstrip() + "\n")
+        else:
+            block_out.write_text("")
+
+        fh.seek(0)
+        fh.truncate()
+        json.dump(data, fh, indent=2)
+        fh.write("\n")
+        fh.flush()
+        os.fsync(fh.fileno())
+    finally:
+        if fcntl is not None:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
 
 meta_out.write_text(json.dumps(meta, indent=2) + "\n")
 PY
@@ -474,6 +581,41 @@ print(data.get("remaining", "unknown"))
 PY
 }
 
+remaining_from_prd() {
+  python3 - "$PRD_PATH" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+prd_path = Path(sys.argv[1])
+if not prd_path.exists():
+    print("unknown")
+    sys.exit(0)
+
+try:
+    data = json.loads(prd_path.read_text())
+except Exception:
+    print("unknown")
+    sys.exit(0)
+
+stories = data.get("stories") if isinstance(data, dict) else None
+if not isinstance(stories, list):
+    print("unknown")
+    sys.exit(0)
+
+def normalize_status(value):
+    if value is None:
+        return "open"
+    return str(value).strip().lower()
+
+remaining = sum(
+    1 for story in stories
+    if isinstance(story, dict) and normalize_status(story.get("status")) != "done"
+)
+print(remaining)
+PY
+}
+
 story_field() {
   local meta_file="$1"
   local field="$2"
@@ -485,6 +627,69 @@ from pathlib import Path
 data = json.loads(Path(sys.argv[1]).read_text())
 field = sys.argv[2]
 print(data.get(field, ""))
+PY
+}
+
+update_story_status() {
+  local story_id="$1"
+  local new_status="$2"
+  python3 - "$PRD_PATH" "$story_id" "$new_status" <<'PY'
+import json
+import os
+import sys
+from pathlib import Path
+from datetime import datetime, timezone
+try:
+    import fcntl
+except Exception:
+    fcntl = None
+
+prd_path = Path(sys.argv[1])
+story_id = sys.argv[2]
+new_status = sys.argv[3]
+
+if not story_id:
+    sys.exit(0)
+
+if not prd_path.exists():
+    sys.exit(0)
+
+def now_iso():
+    return datetime.now(timezone.utc).isoformat()
+
+with prd_path.open("r+", encoding="utf-8") as fh:
+    if fcntl is not None:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+    try:
+        data = json.load(fh)
+        stories = data.get("stories") if isinstance(data, dict) else None
+        if not isinstance(stories, list):
+            sys.exit(0)
+        for story in stories:
+            if isinstance(story, dict) and story.get("id") == story_id:
+                story["status"] = new_status
+                story["updatedAt"] = now_iso()
+                if new_status == "in_progress":
+                    if not story.get("startedAt"):
+                        story["startedAt"] = now_iso()
+                    story["completedAt"] = None
+                elif new_status == "done":
+                    story["completedAt"] = now_iso()
+                    if not story.get("startedAt"):
+                        story["startedAt"] = now_iso()
+                elif new_status == "open":
+                    story["startedAt"] = None
+                    story["completedAt"] = None
+                break
+        fh.seek(0)
+        fh.truncate()
+        json.dump(data, fh, indent=2)
+        fh.write("\n")
+        fh.flush()
+        os.fsync(fh.fileno())
+    finally:
+        if fcntl is not None:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
 PY
 }
 
@@ -631,7 +836,6 @@ git_dirty_files() {
 echo "Ralph mode: $MODE"
 echo "Max iterations: $MAX_ITERATIONS"
 echo "PRD: $PRD_PATH"
-echo "Plan: $PLAN_PATH"
 HAS_ERROR="false"
 
 for i in $(seq 1 "$MAX_ITERATIONS"); do
@@ -659,6 +863,10 @@ for i in $(seq 1 "$MAX_ITERATIONS"); do
     fi
     STORY_ID="$(story_field "$STORY_META" "id")"
     STORY_TITLE="$(story_field "$STORY_META" "title")"
+    if [ -z "$STORY_ID" ]; then
+      echo "No actionable open stories (all blocked or in progress). Remaining: $REMAINING"
+      exit 0
+    fi
   fi
 
   HEAD_BEFORE="$(git_head)"
@@ -712,18 +920,18 @@ for i in $(seq 1 "$MAX_ITERATIONS"); do
   fi
 
   if [ "$MODE" = "build" ]; then
-    select_story "$STORY_META" "$STORY_BLOCK"
-    REMAINING="$(remaining_stories "$STORY_META")"
     if [ "$CMD_STATUS" -ne 0 ]; then
       log_error "ITERATION $i exited non-zero; review $LOG_FILE"
+      update_story_status "$STORY_ID" "open"
+      echo "Iteration failed; story reset to open."
+    elif grep -q "<promise>COMPLETE</promise>" "$LOG_FILE"; then
+      update_story_status "$STORY_ID" "done"
+      echo "Completion signal received; story marked done."
+    else
+      update_story_status "$STORY_ID" "open"
+      echo "No completion signal; story reset to open."
     fi
-    if grep -q "<promise>COMPLETE</promise>" "$LOG_FILE"; then
-      if [ "$REMAINING" = "0" ]; then
-        echo "All stories complete."
-        exit 0
-      fi
-      echo "Completion signal received; stories remaining: $REMAINING"
-    fi
+    REMAINING="$(remaining_from_prd)"
     echo "Iteration $i complete. Remaining stories: $REMAINING"
     if [ "$REMAINING" = "0" ]; then
       echo "No remaining stories."
@@ -737,13 +945,6 @@ for i in $(seq 1 "$MAX_ITERATIONS"); do
 done
 
 echo "Reached max iterations ($MAX_ITERATIONS)."
-if [ "$MODE" = "plan" ]; then
-  echo ""
-  echo "Next steps (if you want to proceed):"
-  echo "1) Review the plan in \"$PLAN_PATH\"."
-  echo "2) Start implementation with: ralph build"
-  echo "3) Test a single run without committing: ralph build 1 --no-commit"
-fi
 if [ "$HAS_ERROR" = "true" ]; then
   exit 1
 fi

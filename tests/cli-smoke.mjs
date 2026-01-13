@@ -19,7 +19,7 @@ run(process.execPath, [cliPath, "--help"]);
 
 const projectRoot = mkdtempSync(path.join(tmpdir(), "ralph-cli-"));
 try {
-  const outPath = path.join(projectRoot, "prd.md");
+  const outPath = path.join(projectRoot, "prd.json");
   run(process.execPath, [cliPath, "prd", "Smoke test PRD", "--out", outPath], {
     cwd: projectRoot,
     env: { ...process.env, RALPH_DRY_RUN: "1" },
@@ -27,6 +27,17 @@ try {
 
   if (!existsSync(outPath)) {
     console.error("PRD smoke test failed: output not created.");
+    process.exit(1);
+  }
+
+  run(process.execPath, [cliPath, "overview", "--prd", outPath], {
+    cwd: projectRoot,
+    env: { ...process.env },
+  });
+
+  const overviewPath = outPath.replace(/\.json$/i, ".overview.md");
+  if (!existsSync(overviewPath)) {
+    console.error("Overview smoke test failed: output not created.");
     process.exit(1);
   }
 } finally {

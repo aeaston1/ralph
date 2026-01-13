@@ -23,13 +23,26 @@ function setupTempProject() {
   const base = mkdtempSync(path.join(tmpdir(), "ralph-smoke-"));
   mkdirSync(path.join(base, ".agents", "tasks"), { recursive: true });
   mkdirSync(path.join(base, ".ralph"), { recursive: true });
+  const prd = {
+    version: 1,
+    project: "Smoke Test",
+    qualityGates: [],
+    stories: [
+      {
+        id: "US-001",
+        title: "Smoke Test Story",
+        status: "open",
+        dependsOn: [],
+        acceptanceCriteria: [
+          "Example: input -> output",
+          "Negative case: bad input -> error",
+        ],
+      },
+    ],
+  };
   writeFileSync(
-    path.join(base, ".agents", "tasks", "prd.md"),
-    `# PRD: Smoke Test\n\n## 3. User Stories\n\n### [ ] US-001: Smoke Test Story\n**Description:** As a user, I want a placeholder story so the loop can run.\n\n**Acceptance Criteria:**\n- [ ] Example: input -> output\n- [ ] Negative case: bad input -> error\n- [ ] Typecheck passes\n\n`,
-  );
-  writeFileSync(
-    path.join(base, ".ralph", "IMPLEMENTATION_PLAN.md"),
-    `# Implementation Plan\n\n## Tasks\n### US-001: Smoke Test Story\n- [ ] Placeholder task\n  - Scope: none\n  - Acceptance: none\n  - Verification: none\n`,
+    path.join(base, ".agents", "tasks", "prd.json"),
+    `${JSON.stringify(prd, null, 2)}\n`,
   );
   return base;
 }
